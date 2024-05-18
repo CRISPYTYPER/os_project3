@@ -88,7 +88,11 @@ allocproc(void)
 
 found:
   p->state = EMBRYO;
-  p->pid = nextpid++;
+  if(p->is_thread){
+    p->pid = nextpid;
+  }else {
+    p->pid = nextpid++;
+  }
 
   release(&ptable.lock);
 
@@ -543,6 +547,7 @@ int thread_create(thread_t *thread, void *(*start_routine)(void *), void *arg) {
   struct proc *np;
   struct proc *curproc = myproc();
 
+  np->is_thread = 1; // will be used in allocproc
   if ((np = allocproc()) == 0) {
     return -1;
   }
@@ -554,7 +559,7 @@ int thread_create(thread_t *thread, void *(*start_routine)(void *), void *arg) {
   *np->tf = *curproc->tf;
 
   np->tid = nexttid++;
-  np->is_thread = 1;
+  np->pid = curproc->pid; // share same pid
   curproc->next_thread = np;
   np->next_thread = 0;
 
@@ -604,17 +609,63 @@ void thread_exit(void *retval) {
 
   // Wakeup any process or thread waiting on this thread's termination
   wakeup1(curthread);
-
-  // Pass abandoned children to init.
-  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-    if(p->parent == curthread){
-      p->parent = initproc;
-      if(p->state == ZOMBIE)
-        wakeup1(initproc);
-    }
-  }
   
   curthread->state = ZOMBIE;
   sched();
   panic("zombie exit");
+}
+
+int thread_join(thread_t thread, void **retval) {
+  struct proc *p;
+  struct proc *prev = 0;
+  int tid_found = 0;
+  struct proc *curproc = myproc();
+
+  acquire(&ptable.lock);
+
+  for(;;){
+    // Scan through table looking for exited children.
+    struct proc *start = (curproc->is_thread == 0) ? curproc : curproc->parent;
+    for(p = start; p != 0; prev = p, p = p->next_thread){
+      if(p->tid == thread && p->parent == curproc){
+        tid_found = 1;
+        if(p->state == ZOMBIE){
+          // Found one.
+          if (retval != 0) {
+            *retval = p->retval;
+          }
+          kfree(p->kstack);
+          p->kstack = 0;
+
+          // Remove the thread from the linked list.
+          if (prev) {
+              prev->next_thread = p->next_thread;
+          } else {
+              start->next_thread = p->next_thread;
+          }
+
+          p->tid = 0;
+          p->is_thread = 0;
+          p->retval = 0;
+
+          p->pid = 0;
+          p->parent = 0;
+          p->name[0] = 0;
+          p->killed = 0;
+          p->state = UNUSED;
+          release(&ptable.lock);
+          return 0;
+        }
+      }
+
+      // No point waiting if we don't have any children.
+      if(!tid_found){
+        release(&ptable.lock);
+        return -1;
+      }
+
+      // Wait for children to exit.  (See wakeup1 call in proc_exit.)
+      sleep(curproc, &ptable.lock);  //DOC: wait-sleep
+    }
+  }
 }
