@@ -619,16 +619,19 @@ int thread_join(thread_t thread, void **retval) {
   struct proc *p;
   struct proc *prev = 0;
   int tid_found = 0;
+  struct proc *foundthread = 0;
   struct proc *curproc = myproc();
 
   acquire(&ptable.lock);
 
   for(;;){
     // Scan through table looking for exited children.
+    tid_found = 0;
     struct proc *start = (curproc->is_thread == 0) ? curproc : curproc->parent;
     for(p = start; p != 0; prev = p, p = p->next_thread){
-      if(p->tid == thread && p->parent == curproc){
+      if(p->tid == thread){
         tid_found = 1;
+        foundthread = p;
         if(p->state == ZOMBIE){
           // Found one.
           if (retval != 0) {
@@ -656,6 +659,8 @@ int thread_join(thread_t thread, void **retval) {
           release(&ptable.lock);
           return 0;
         }
+        if(tid_found)
+          break;
       }
 
       // No point waiting if we don't have any children.
@@ -664,8 +669,8 @@ int thread_join(thread_t thread, void **retval) {
         return -1;
       }
 
-      // Wait for children to exit.  (See wakeup1 call in proc_exit.)
-      sleep(curproc, &ptable.lock);  //DOC: wait-sleep
+      // Wait for the thread to exit  (See wakeup1 call in proc_exit.)
+      sleep(foundthread, &ptable.lock);  //DOC: wait-sleep
     }
   }
 }
