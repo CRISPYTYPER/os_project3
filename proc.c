@@ -88,11 +88,7 @@ allocproc(void)
 
 found:
   p->state = EMBRYO;
-  if(p->is_thread){
-    p->pid = nextpid;
-  }else {
-    p->pid = nextpid++;
-  }
+  p->pid = nextpid++;
 
   release(&ptable.lock);
 
@@ -117,12 +113,60 @@ found:
   memset(p->context, 0, sizeof *p->context);
   p->context->eip = (uint)forkret;
 
-  // For project 3
-  p->is_thread = 0; // indicate as a process
-  p->next_thread = 0; // set as null
+  // for project 3
+  p->is_thread = 0;
+  p->main_thread = p;
+  p->next_thread = 0;
 
   return p;
 }
+
+static struct proc*
+allocthread(void)
+{
+  struct proc *p;
+  char *sp;
+
+  acquire(&ptable.lock);
+
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+    if(p->state == UNUSED)
+      goto found;
+
+  release(&ptable.lock);
+  return 0;
+
+found:
+  p->state = EMBRYO;
+  // p->pid = nextpid;
+  // pid will be modified ouside the allocthread()
+
+  release(&ptable.lock);
+
+  // Allocate kernel stack.
+  if((p->kstack = kalloc()) == 0){
+    p->state = UNUSED;
+    return 0;
+  }
+  sp = p->kstack + KSTACKSIZE;
+
+  // Leave room for trap frame.
+  sp -= sizeof *p->tf;
+  p->tf = (struct trapframe*)sp;
+
+  // Set up new context to start executing at forkret,
+  // which returns to trapret.
+  sp -= 4;
+  *(uint*)sp = (uint)trapret;
+
+  sp -= sizeof *p->context;
+  p->context = (struct context*)sp;
+  memset(p->context, 0, sizeof *p->context);
+  p->context->eip = (uint)forkret;
+
+  return p;
+}
+
 
 //PAGEBREAK: 32
 // Set up first user process.
@@ -547,21 +591,24 @@ int thread_create(thread_t *thread, void *(*start_routine)(void *), void *arg) {
   struct proc *np;
   struct proc *curproc = myproc();
 
-  np->is_thread = 1; // will be used in allocproc
-  if ((np = allocproc()) == 0) {
+  if ((np = allocthread()) == 0) {
     return -1;
   }
 
   // Shares same address space
   np->sz = curproc->sz;
   np->pgdir = curproc->pgdir;
-  np->parent = curproc;
+  np->parent = curproc->parent; // share same parent
   *np->tf = *curproc->tf;
+  np->is_thread = 1;
 
   np->tid = nexttid++;
   np->pid = curproc->pid; // share same pid
-  curproc->next_thread = np;
+  curproc->next_thread = np; // linked list of threads
   np->next_thread = 0;
+  np->main_thread = curproc->main_thread;
+
+  np->retval = 0;
 
   // Adjust the instruction pointer in the trap frame to the start routine
   np->tf->eip = (uint)start_routine;
@@ -627,7 +674,7 @@ int thread_join(thread_t thread, void **retval) {
   for(;;){
     // Scan through table looking for exited children.
     tid_found = 0;
-    struct proc *start = (curproc->is_thread == 0) ? curproc : curproc->parent;
+    struct proc *start = curproc->main_thread;
     for(p = start; p != 0; prev = p, p = p->next_thread){
       if(p->tid == thread){
         tid_found = 1;

@@ -55,6 +55,7 @@ struct proc {
   // For Project3
   thread_t tid;                // Thread ID.
   int is_thread;               // 0 if process, 1 if thread
+  struct proc *main_thread;    // Main thread in linked list
   struct proc *next_thread;    // Next thread in linked list(0 if last)
   void *retval;                // Return value that join() will take
 };
