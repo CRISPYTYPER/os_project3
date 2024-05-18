@@ -34,6 +34,9 @@ struct context {
 
 enum procstate { UNUSED, EMBRYO, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
+// For Project 3
+typedef int thread_t;  // Define thread identifier as an int type
+
 // Per-process state
 struct proc {
   uint sz;                     // Size of process memory (bytes)
@@ -49,6 +52,11 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  // For Project3
+  thread_t tid;                // Thread ID.
+  int is_thread;               // 0 if process, 1 if thread
+  struct proc *next_thread;    // Next thread in linked list(0 if last)
+  void *retval;                // Return value that join() will take
 };
 
 // Process memory is laid out contiguously, low addresses first:
@@ -56,18 +64,3 @@ struct proc {
 //   original data and bss
 //   fixed-size stack
 //   expandable heap
-
-// For Project 3
-
-typedef int thread_t;  // Define thread identifier as an int type
-
-// For managing individual threads within processes
-struct thread {
-  thread_t tid;    // Thread ID
-  char *kstack;  // Bottom of kernel stack for this thread
-  enum procstate state;  // Thread state
-  struct context *context;   // Context used for switching
-  struct trapframe *tf;      // Trap frame for current syscall
-  struct proc *proc;         // Pointer to the owning process of this thread
-  void *retval;              // Return value from thread_exit()
-};

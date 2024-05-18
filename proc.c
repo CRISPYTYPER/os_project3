@@ -15,6 +15,7 @@ struct {
 static struct proc *initproc;
 
 int nextpid = 1;
+int nexttid = 1;
 extern void forkret(void);
 extern void trapret(void);
 
@@ -111,6 +112,10 @@ found:
   p->context = (struct context*)sp;
   memset(p->context, 0, sizeof *p->context);
   p->context->eip = (uint)forkret;
+
+  // For project 3
+  p->is_thread = 0; // indicate as a process
+  p->next_thread = 0; // set as null
 
   return p;
 }
@@ -531,4 +536,85 @@ procdump(void)
     }
     cprintf("\n");
   }
+}
+
+// For project3
+int thread_create(thread_t *thread, void *(*start_routine)(void *), void *arg) {
+  struct proc *np;
+  struct proc *curproc = myproc();
+
+  if ((np = allocproc()) == 0) {
+    return -1;
+  }
+
+  // Shares same address space
+  np->sz = curproc->sz;
+  np->pgdir = curproc->pgdir;
+  np->parent = curproc;
+  *np->tf = *curproc->tf;
+
+  np->tid = nexttid++;
+  np->is_thread = 1;
+  curproc->next_thread = np;
+  np->next_thread = 0;
+
+  // Adjust the instruction pointer in the trap frame to the start routine
+  np->tf->eip = (uint)start_routine;
+
+  // set up the user stack for the new thread
+  uint sp = np->tf->esp;
+  sp -= 4;
+  *(uint*)sp = (uint)arg; // Push argument onto stack
+  sp -= 4;
+  *(uint*)sp = (uint)thread_exit;
+
+  // update the stack pointer
+  np->tf->esp = sp;
+  
+  int i;
+  // Share open files and current working directory.
+  for (i = 0; i < NOFILE; i++)
+    if (curproc->ofile[i])
+      np->ofile[i] = filedup(curproc->ofile[i]);
+  np->cwd = idup(curproc->cwd);
+  
+  safestrcpy(np->name, curproc->name, sizeof(curproc->name));
+
+  *thread = np->tid;
+  
+  // Insert the new process (thread) into the runnable state
+  acquire(&ptable.lock);
+  np->state = RUNNABLE;
+  release(&ptable.lock);
+  
+  return 0;
+}
+
+void thread_exit(void *retval) {
+  struct proc *curthread = myproc();
+  struct proc *p;
+
+  if(curthread == initproc) {
+    panic("init exiting");
+  }
+
+  acquire(&ptable.lock);
+
+  curthread->retval = retval;
+
+  // Wakeup any process or thread waiting on this thread's termination
+  wakeup1(curthread);
+
+  // Pass abandoned children to init.
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if(p->parent == curthread){
+      p->parent = initproc;
+      if(p->state == ZOMBIE)
+        wakeup1(initproc);
+    }
+  }
+  
+  curthread->state = ZOMBIE;
+  sched();
+  panic("zombie exit");
 }
