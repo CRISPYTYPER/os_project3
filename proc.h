@@ -1,3 +1,7 @@
+#ifndef PROC_H
+#define PROC_H
+
+#include "types.h"
 // Per-CPU state
 struct cpu {
   uchar apicid;                // Local APIC ID
@@ -35,7 +39,6 @@ struct context {
 enum procstate { UNUSED, EMBRYO, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
 // For Project 3
-typedef int thread_t;  // Define thread identifier as an int type
 
 // Per-process state
 struct proc {
@@ -65,3 +68,5 @@ struct proc {
 //   original data and bss
 //   fixed-size stack
 //   expandable heap
+
+#endif // PROC_H

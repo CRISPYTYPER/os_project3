@@ -644,7 +644,6 @@ int thread_create(thread_t *thread, void *(*start_routine)(void *), void *arg) {
 
 void thread_exit(void *retval) {
   struct proc *curthread = myproc();
-  struct proc *p;
 
   if(curthread == initproc) {
     panic("init exiting");
